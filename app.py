@@ -7,11 +7,11 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # ==============================================================================
-# 1. PAGE CONFIGURATION & THEME
+# 1. PAGE CONFIGURATION & RESPONSIVE THEME
 # ==============================================================================
 st.set_page_config(
     page_title="SmartMoney Nexus", 
-    layout="wide", 
+    layout="wide",  # Forces the application to stretch across the full browser width
     initial_sidebar_state="expanded"
 )
 
@@ -19,23 +19,53 @@ st.title("📊 SmartMoney Nexus: Institutional Flow & Rotation Terminal")
 st.markdown("---")
 
 # ==============================================================================
-# 2. DATA INGESTION ENGINE (Fully Expanded Sector Matrix)
+# 2. DATA INGESTION ENGINE (Tiered Global Macro & Domestic Sectors)
 # ==============================================================================
 @st.cache_data(ttl=3600)  # Cache data for 1 hour to prevent API throttling
 def fetch_market_data():
     end_date = datetime.today()
     start_date = end_date - timedelta(days=5 * 365) # 5-year historical baseline
     
-    tickers = {
-        'Nifty 50 (India)': '^NSEI',
-        'S&P 500 (US)': '^GSPC',
-        'Nasdaq 100 (US)': '^IXIC',
-        'Nikkei 225 (Japan)': '^N225',
-        'DAX (Germany)': '^GDAXI',
+    global_macro = {
+        # Developed Markets (DM)
+        'US (S&P 500)': '^GSPC',
+        'US Tech (Nasdaq)': '^IXIC',
+        'Germany (DAX)': '^GDAXI',
+        'Japan (Nikkei 225)': '^N225',
+        'UK (FTSE 100)': '^FTSE',
+        'France (CAC 40)': '^FCHI',
+        
+        # Emerging Markets (EM)
+        'India (Nifty 50)': '^NSEI',
+        'China (MSCI)': 'MCHI',
+        'Taiwan (MSCI)': 'EWT',
+        'South Korea (MSCI)': 'EWY',
+        'Brazil (MSCI)': 'EWZ',
+        
+        # Frontier Markets (FM)
+        'Sri Lanka & Frontier Hubs': 'FM',
+        'Vietnam (MSCI)': 'VNM',
+        
+        # Macro Core Benchmarks
         'US Dollar Index': 'DX-Y.NYB',
         'Emerging Markets ETF': 'EEM',
-        'US 10Y Bond Yield': '^TNX',
-        'US 2Y Bond Yield': '^SHY'
+        'US 10Y Bond Yield': '^TNX'
+    }
+    
+    classifications = {
+        'US (S&P 500)': 'Developed Markets (DM)',
+        'US Tech (Nasdaq)': 'Developed Markets (DM)',
+        'Germany (DAX)': 'Developed Markets (DM)',
+        'Japan (Nikkei 225)': 'Developed Markets (DM)',
+        'UK (FTSE 100)': 'Developed Markets (DM)',
+        'France (CAC 40)': 'Developed Markets (DM)',
+        'India (Nifty 50)': 'Emerging Markets (EM)',
+        'China (MSCI)': 'Emerging Markets (EM)',
+        'Taiwan (MSCI)': 'Emerging Markets (EM)',
+        'South Korea (MSCI)': 'Emerging Markets (EM)',
+        'Brazil (MSCI)': 'Emerging Markets (EM)',
+        'Sri Lanka & Frontier Hubs': 'Frontier Markets (FM)',
+        'Vietnam (MSCI)': 'Frontier Markets (FM)'
     }
     
     sectors = {
@@ -57,23 +87,22 @@ def fetch_market_data():
         'Nifty Media': '^CNXMEDIA'
     }
     
-    all_tickers = {**tickers, **sectors}
+    all_tickers = {**global_macro, **sectors}
     data = yf.download(list(all_tickers.values()), start=start_date, end=end_date)['Close']
     
     inv_tickers = {v: k for k, v in all_tickers.items()}
     data.rename(columns=inv_tickers, inplace=True)
     
-    # Handle missing values globally from rate-limiting / market closures safely
+    # Clean data comprehensively to ensure responsive visuals never get corrupt 'nan' elements
     data = data.ffill().bfill().fillna(0)
     
-    # Standardize treasury yields (^TNX scales by 10 on Yahoo Finance)
     if 'US 10Y Bond Yield' in data.columns:
         data['US 10Y Bond Yield'] = data['US 10Y Bond Yield'] / 10
         
-    return data, sectors
+    return data, sectors, global_macro, classifications
 
 try:
-    master_data, sectoral_dict = fetch_market_data()
+    master_data, sectoral_dict, global_dict, market_classes = fetch_market_data()
 except Exception as e:
     st.error(f"Error fetching live market components: {e}")
     st.stop()
@@ -96,13 +125,12 @@ if page == "Custom Valuation Index (EVI)":
     st.header("🎛️ Synthetic Equity Valuation Index")
     st.subheader("Replicating Multi-Factor Structural Risk Analysis")
     
-    if 'Nifty 50 (India)' in master_data.columns and (master_data['Nifty 50 (India)'] != 0).any():
-        nifty = master_data['Nifty 50 (India)'].replace(0, np.nan).dropna()
+    if 'India (Nifty 50)' in master_data.columns and (master_data['India (Nifty 50)'] != 0).any():
+        nifty = master_data['India (Nifty 50)'].replace(0, np.nan).dropna()
         rolling_mean = nifty.rolling(window=250).mean()
         rolling_std = nifty.rolling(window=250).std()
         z_score = (nifty - rolling_mean) / rolling_std
         
-        # Scale to align with 50 - 170 index layout
         evi_series = 110 + (z_score * 20)
         evi_series = evi_series.fillna(110)
         current_evi = round(evi_series.iloc[-1], 1)
@@ -121,11 +149,12 @@ if page == "Custom Valuation Index (EVI)":
     else:
         status, color, delta_type = "Aggressively Invest in Equities", "🍏", "normal"
 
+    # Responsive structural column splits: switches automatically to single stack on smaller screens
     col1, col2 = st.columns([1, 2])
     with col1:
         st.metric(label="Calculated Real-Time EVI Score", value=f"{current_evi}", delta=f"Zone: {status}", delta_color=delta_type)
         st.markdown(f"### Allocation Directives")
-        st.info(f"**Current Status:** Market is verifying inside the **{status}** spectrum. Match entry velocities to structural trendline stability.")
+        st.info(f"**Current Status:** Market is verifying inside the **{status}** spectrum.")
 
     with col2:
         fig_evi = px.line(evi_series, title="Synthetic EVI Trajectory Model", labels={'value': 'EVI Index Score', 'Date': 'Timeline'})
@@ -133,19 +162,20 @@ if page == "Custom Valuation Index (EVI)":
         fig_evi.add_hrect(y0=110, y1=130, fillcolor="orange", opacity=0.2, annotation_text="Debt Overweight")
         fig_evi.add_hrect(y0=90, y1=110, fillcolor="yellow", opacity=0.2, annotation_text="Neutral Strategy Band")
         fig_evi.add_hrect(y0=50, y1=90, fillcolor="green", opacity=0.2, annotation_text="Equity Accumulation Zone")
+        
+        # Responsive plot config
         st.plotly_chart(fig_evi, width='stretch')
 
 # ==============================================================================
-# LAYER 2: SECTOR ROTATION MATRICES (Current, Queue, and Exit)
+# LAYER 2: SECTOR ROTATION MATRICES
 # ==============================================================================
 elif page == "Sector Rotation Tracker":
     st.header("🔄 Sector Rotation & Momentum Mapping")
     st.subheader("Identifying Alpha Pipelines via Multi-Timeframe Rate of Change (ROC)")
     
-    benchmark = 'Nifty 50 (India)'
+    benchmark = 'India (Nifty 50)'
     sector_performance = []
     
-    # Safely extract benchmark prices, guarding against zero or missing entries
     b_last = master_data[benchmark].iloc[-1] if benchmark in master_data.columns else 1
     b_5d = master_data[benchmark].iloc[-5] if benchmark in master_data.columns and master_data[benchmark].iloc[-5] != 0 else 1
     b_60d = master_data[benchmark].iloc[-60] if benchmark in master_data.columns and master_data[benchmark].iloc[-60] != 0 else 1
@@ -159,7 +189,6 @@ elif page == "Sector Rotation Tracker":
             s_5d = master_data[sector].iloc[-5] if master_data[sector].iloc[-5] != 0 else 1
             s_60d = master_data[sector].iloc[-60] if master_data[sector].iloc[-60] != 0 else 1
             
-            # If data is completely missing or failed download, replace with baseline to prevent NaN outputs
             if s_last == 0:
                 st_ret, mt_ret = 0.0, 0.0
             else:
@@ -176,8 +205,6 @@ elif page == "Sector Rotation Tracker":
             })
             
     df_rotation = pd.DataFrame(sector_performance)
-    
-    # CRITICAL BUG FIX: Ensure absolutely no NaN options bypass sizing filters
     df_rotation['Relative Strength (X-Axis)'] = df_rotation['Relative Strength (X-Axis)'].fillna(0.0)
     df_rotation['Relative Momentum (Y-Axis)'] = df_rotation['Relative Momentum (Y-Axis)'].fillna(0.0)
     
@@ -191,31 +218,29 @@ elif page == "Sector Rotation Tracker":
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        st.success("🔥 Money Is Moving Here Currently (Leading)")
-        st.write(", ".join(leading) if leading else "No Sector Currently Dominating")
+        st.success("🔥 Money Is Moving Here (Leading)")
+        st.write(", ".join(leading) if leading else "None")
     with c2:
-        st.info("⏳ In Queue/Next Breakdown Focus (Improving)")
-        st.write(", ".join(improving) if improving else "No Accumulation Phase Vectors Found")
+        st.info("⏳ In Queue Focus (Improving)")
+        st.write(", ".join(improving) if improving else "None")
     with c3:
-        st.warning("⚠️ Time to Move Out/Scale Back (Weakening)")
-        st.write(", ".join(weakening) if weakening else "Exits clear.")
+        st.warning("⚠️ Time to Move Out (Weakening)")
+        st.write(", ".join(weakening) if weakening else "None")
 
-    # Apply fix to scatter point calculation to ensure it contains only valid integers/floats
     point_sizes = np.abs(df_rotation['Relative Momentum (Y-Axis)']).fillna(0.0) + 5
 
     fig_rrg = px.scatter(
         df_rotation, x='Relative Strength (X-Axis)', y='Relative Momentum (Y-Axis)', text='Sector', 
         size=point_sizes, title="Relative Rotation Matrix (Benchmark: Nifty 50)"
     )
-    
-    # Draw quadrant crosshairs
     fig_rrg.add_hline(y=0, line_dash="dash", line_color="gray")
     fig_rrg.add_vline(x=0, line_dash="dash", line_color="gray")
     
+    # Responsive graph application
     st.plotly_chart(fig_rrg, width='stretch')
 
 # ==============================================================================
-# LAYER 3: YIELD CURVE INVERSION & FII MACRO FLOWS
+# LAYER 3: YIELD CURVE INVERSION & TIERED GLOBAL FLOWS
 # ==============================================================================
 elif page == "Bond Yield Curve & FII Flows":
     st.header("📈 Yield Curve Vectors & Sovereign Macro Allocations")
@@ -236,9 +261,9 @@ elif page == "Bond Yield Curve & FII Flows":
             delta_color="inverse" if current_spread < 0 else "normal"
         )
         if current_spread < 0:
-            st.error("🚨 Yield Curve Inverted! Institutional smart money is pricing in contraction risks. Play defensively.")
+            st.error("🚨 Yield Curve Inverted! Defensive strategies advised.")
         else:
-            st.success("✅ The Yield curve remains positive. Capital architecture supports equity risk appetite.")
+            st.success("✅ The Yield curve remains positive.")
 
     with bc2:
         fig_spread = px.line(spread, title="Yield Spread History (10Y - 2Y)", labels={'value': 'Spread (%)'})
@@ -246,24 +271,37 @@ elif page == "Bond Yield Curve & FII Flows":
         st.plotly_chart(fig_spread, width='stretch')
         
     st.markdown("---")
-    st.subheader("Global Equity Performance Rankings (FII Asset Ingestion)")
+    st.subheader("🌐 Global Equity Performance Rankings (Tiered Ingestion Matrix)")
+    st.write("Markets are dynamically sorted by **3-Month performance** inside their explicit institutional allocation tiers.")
     
-    global_indices = ['Nifty 50 (India)', 'S&P 500 (US)', 'Nasdaq 100 (US)', 'Nikkei 225 (Japan)', 'DAX (Germany)']
     perf_list = []
-    
-    for idx in global_indices:
+    for idx in market_classes.keys():
         if idx in master_data.columns and (master_data[idx] != 0).any():
             series = master_data[idx].replace(0, np.nan).ffill()
             m1 = ((series.iloc[-1] / series.iloc[-21]) - 1) * 100 if len(series) > 21 else 0.0
             m3 = ((series.iloc[-1] / series.iloc[-63]) - 1) * 100 if len(series) > 63 else 0.0
             y1 = ((series.iloc[-1] / series.iloc[-252]) - 1) * 100 if len(series) > 252 else 0.0
-            perf_list.append({'Market Index': idx, '1-Month %': m1, '3-Month %': m3, '1-Year %': y1})
-        else:
-            perf_list.append({'Market Index': idx, '1-Month %': 0.0, '3-Month %': 0.0, '1-Year %': 0.0})
             
-    df_perf = pd.DataFrame(perf_list).set_index('Market Index')
-    st.dataframe(df_perf.style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}%"), width='stretch')
+            perf_list.append({
+                'Global Hub': idx, 
+                'Market Tier': market_classes[idx],
+                '1-Month %': m1, 
+                '3-Month %': m3, 
+                '1-Year %': y1
+            })
+            
+    df_raw = pd.DataFrame(perf_list)
     
+    # Render separate sorted tables with responsive layout containment
+    for tier in ['Developed Markets (DM)', 'Emerging Markets (EM)', 'Frontier Markets (FM)']:
+        st.markdown(f"### 🚀 {tier} Leaderboard")
+        df_tier = df_raw[df_raw['Market Tier'] == tier].set_index('Global Hub').drop(columns=['Market Tier'])
+        df_tier = df_tier.sort_values(by='3-Month %', ascending=False)
+        
+        # Wrapping dataframe layout responsibly to ensure width='stretch' behavior across mobile devices
+        st.dataframe(df_tier.style.background_gradient(cmap='RdYlGn', axis=0).format("{:.2f}%"), width='stretch')
+        
+    st.markdown("---")
     st.subheader("Smart Money Sentiment Multiplier (DXY vs. Emerging Markets)")
     
     dxy_base = master_data['US Dollar Index'].replace(0, np.nan).dropna().iloc[0] if 'US Dollar Index' in master_data.columns else 1
@@ -276,4 +314,5 @@ elif page == "Bond Yield Curve & FII Flows":
     fig_flow.add_trace(go.Scatter(x=dxy_norm.index, y=dxy_norm, name="US Dollar Index (DXY) - Normalized"))
     fig_flow.add_trace(go.Scatter(x=eem_norm.index, y=eem_norm, name="Emerging Markets ETF (EEM) - Normalized"))
     fig_flow.update_layout(title="Global Liquidity Flow Vector (Inverse Correlation Verification)")
+    
     st.plotly_chart(fig_flow, width='stretch')
